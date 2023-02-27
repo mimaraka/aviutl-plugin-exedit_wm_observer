@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <aviutl_plugin_sdk/filter.h>
 #include <aulslib/exedit.h>
-#include <auluilib/aului.hpp>
+//#include <auluilib/aului.hpp>
 
 
 #define EWO_FILTER_NAME		"拡張編集ウィンドウメッセージ監視"
@@ -187,7 +187,7 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 		button = ::CreateWindowEx(
 			NULL,
 			"BUTTON",
-			"Filter",
+			"Hide",
 			WS_CHILD | WS_VISIBLE,
 			rect_wnd.right - EWO_BUTTON_WIDTH,
 			0,
