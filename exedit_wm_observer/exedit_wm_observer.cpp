@@ -228,7 +228,7 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
 
 			for (auto s : vec_str) {
 				try {
-					g_filter_list.emplace_back(std::stoi(s));
+					g_filter_list.emplace_back(std::strtol(s.c_str(), NULL, 16));
 				}
 				catch (std::invalid_argument&) {
 					continue;
