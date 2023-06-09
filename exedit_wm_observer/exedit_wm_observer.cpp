@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------------
-//		イージング ドラッグ&ドロップ
+//		拡張編集ウィンドウメッセージ監視
 //		ソースファイル
 //		Visual C++ 2022
 //----------------------------------------------------------------------------------
@@ -9,92 +9,84 @@
 #include <string>
 #include <sstream>
 #include <stdexcept>
-#include <aviutl_plugin_sdk/filter.h>
-#include <aulslib/exedit.h>
-//#include <auluilib/aului.hpp>
+
+#include <mkaul/include/mkaul.hpp>
+#include <aviutl.hpp>
+#include <exedit.hpp>
+
+#pragma comment(lib, "C:/aviutl_libs/mkaul/mkaul.lib")
 
 
-#define EWO_FILTER_NAME		"拡張編集ウィンドウメッセージ監視"
-#define FILTER_INFO			EWO_FILTER_NAME "v1.0"
-#define DEFAULT_WIDTH		450
-#define DEFAULT_HEIGHT		300
-#define EWO_COMMAND_HEIGHT	18
-#define EWO_INPUT_HEIGHT	24
-#define EWO_BUTTON_WIDTH	100
-#define EWO_CM_FILTER		0x4000
-#define POPUP(content)		::MessageBox(hwnd, content, "Debug Message", MB_OK)
+#define FILTER_NAME				"拡張編集ウィンドウメッセージ監視"
+#define FILTER_VERSION			"v1.0.1"
+#define FILTER_DEVELOPER		"mimaraka"
+#define COMMAND_HEIGHT			18
+#define INPUT_HEIGHT			24
+#define BUTTON_WIDTH			100
+#define COMMAND_FILTER			0x4000
+#define POPSTR(str)				::MessageBox(NULL, str, FILTER_NAME, MB_ICONINFORMATION)
+#define POPNUM(n)				::MessageBox(NULL, std::to_string(n).c_str(), FILTER_NAME, MB_ICONINFORMATION)
 
 
 
-WNDPROC wndproc_obj_orig;
-WNDPROC wndproc_exedit_orig;
+BOOL(*wndproc_exedit_orig)(HWND, UINT, WPARAM, LPARAM, AviUtl::EditHandle*, AviUtl::FilterPlugin*);
 HWND hwnd_observer;
 HWND hwnd_list_exedit, hwnd_list_obj;
-HWND g_hwnd_exedit;
-HWND g_hwnd_obj;
 std::vector<int> g_filter_list;
+mkaul::exedit::Internal g_exedit_internal;
 
 
 
 //---------------------------------------------------------------------
-//		ウィンドウプロシージャ(オブジェクト設定ウィンドウ)
+//		ウィンドウプロシージャ(オブジェクト設定ダイアログ)
 //---------------------------------------------------------------------
-LRESULT CALLBACK wndproc_obj(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+LRESULT CALLBACK wndproc_objdialog_hooked(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	char result[1024] = "";
 
-	if (sizeof(g_filter_list))
-		for (int m : g_filter_list)
-			if (msg == m)
-				return ::CallWindowProc(wndproc_obj_orig, hwnd, msg, wparam, lparam);
+	if (sizeof(g_filter_list)) {
+		for (int m : g_filter_list) {
+			if (message == m) {
+				return (g_exedit_internal.get_wndproc_objdialog())(hwnd, message, wparam, lparam);
+			}
+		}
+	}
 
-	::sprintf_s(result, 1024, "Message: 0x%04x, wParam:%12d, lParam:%12d", (int)msg, (int)wparam, (int)lparam);
+	::sprintf_s(result, 1024, "Message: 0x%04x, wParam:%12d, lParam:%12d", (int)message, (int)wparam, (int)lparam);
 	::SendMessage(hwnd_list_obj, LB_ADDSTRING, 0, (LPARAM)result);
 	::SendMessage(hwnd_list_obj, WM_VSCROLL, MAKEWPARAM(SB_LINEDOWN, NULL), NULL);
 
-	return ::CallWindowProc(wndproc_obj_orig, hwnd, msg, wparam, lparam);
+	return (g_exedit_internal.get_wndproc_objdialog())(hwnd, message, wparam, lparam);
 }
 
 
 
 //---------------------------------------------------------------------
-//		ウィンドウプロシージャ(拡張編集ウィンドウ)
+//		ウィンドウプロシージャ(タイムラインウィンドウ)
 //---------------------------------------------------------------------
-LRESULT CALLBACK wndproc_exedit(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+BOOL wndproc_timeline_hooked(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl::EditHandle* editp, AviUtl::FilterPlugin* fp)
 {
 	char result[1024] = "";
 
-	if (sizeof(g_filter_list))
-		for (int m : g_filter_list)
-			if (msg == m)
-				return ::CallWindowProc(wndproc_exedit_orig, hwnd, msg, wparam, lparam);
+	if (sizeof(g_filter_list)) {
+		for (int m : g_filter_list) {
+			if (message == m)
+				return wndproc_exedit_orig(hwnd, message, wparam, lparam, editp, fp);
+		}
+	}
 
-	::sprintf_s(result, 1024, "Message: 0x%04x, wParam:%12d, lParam:%12d", (int)msg, (int)wparam, (int)lparam);
+	::sprintf_s(
+		result,
+		1024,
+		"Message: 0x%04x, wParam:%12d, lParam:%12d",
+		(int)message,
+		(int)wparam,
+		(int)lparam
+	);
 	::SendMessage(hwnd_list_exedit, LB_ADDSTRING, 0, (LPARAM)result);
 	::SendMessage(hwnd_list_exedit, WM_VSCROLL, MAKEWPARAM(SB_LINEDOWN, NULL), NULL);
 
-	return ::CallWindowProc(wndproc_exedit_orig, hwnd, msg, wparam, lparam);
-}
-
-
-
-std::vector<int> split(const std::string& s)
-{
-	std::vector<int> elems;
-	std::string item;
-	for (char ch : s) {
-		if (ch == ',') {
-			if (!item.empty()) {
-				elems.emplace_back(std::strtol(item.c_str(), NULL, 16));
-				item.clear();
-			}
-		}
-		else item += ch;
-	}
-	if (!item.empty())
-		elems.emplace_back(std::strtol(item.c_str(), NULL, 16));
-
-	return elems;
+	return wndproc_exedit_orig(hwnd, message, wparam, lparam, editp, fp);
 }
 
 
@@ -102,31 +94,18 @@ std::vector<int> split(const std::string& s)
 //---------------------------------------------------------------------
 //		ウィンドウプロシージャ
 //---------------------------------------------------------------------
-BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* editp, FILTER* fp)
+BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl::EditHandle* editp, AviUtl::FilterPlugin* fp)
 {
 	static HWND edit_filter;
 	static HWND button;
 	RECT rect_wnd;
-	static RECT rect_button;
-
-	rect_button = {
-		0, 0, 0, 0
-	};
 
 	::GetClientRect(hwnd, &rect_wnd);
 
-	switch (msg) {
-	case WM_FILTER_INIT:
+	switch (message) {
+	case AviUtl::FilterPlugin::WindowMessage::Init:
 	{
 		hwnd_observer = hwnd;
-		g_hwnd_exedit = auls::Exedit_GetWindow(fp);
-		g_hwnd_obj = auls::ObjDlg_GetWindow(g_hwnd_exedit);
-
-		wndproc_exedit_orig = (WNDPROC)::GetWindowLong(g_hwnd_exedit, GWL_WNDPROC);
-		::SetWindowLong(g_hwnd_exedit, GWL_WNDPROC, (LONG)wndproc_exedit);
-
-		wndproc_obj_orig = (WNDPROC)::GetWindowLong(g_hwnd_obj, GWL_WNDPROC);
-		::SetWindowLong(g_hwnd_obj, GWL_WNDPROC, (LONG)wndproc_obj);
 
 		hwnd_list_exedit = ::CreateWindowEx(
 			NULL,
@@ -134,9 +113,9 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 			NULL,
 			WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL,
 			0,
-			EWO_INPUT_HEIGHT,
+			INPUT_HEIGHT,
 			rect_wnd.right / 2,
-			rect_wnd.bottom - EWO_INPUT_HEIGHT,
+			rect_wnd.bottom - INPUT_HEIGHT,
 			hwnd,
 			(HMENU)1,
 			fp->dll_hinst, NULL
@@ -148,16 +127,16 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 			NULL,
 			WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL,
 			rect_wnd.right / 2,
-			EWO_INPUT_HEIGHT,
+			INPUT_HEIGHT,
 			rect_wnd.right / 2,
-			rect_wnd.bottom - EWO_INPUT_HEIGHT,
+			rect_wnd.bottom - INPUT_HEIGHT,
 			hwnd,
 			(HMENU)2,
 			fp->dll_hinst, NULL
 		);
 
 		HFONT font = ::CreateFont(
-			EWO_COMMAND_HEIGHT, 0,
+			COMMAND_HEIGHT, 0,
 			0, 0,
 			FW_REGULAR,
 			FALSE, FALSE, FALSE,
@@ -176,8 +155,8 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 			WS_CHILD | WS_VISIBLE,
 			0,
 			0,
-			rect_wnd.right - EWO_BUTTON_WIDTH,
-			EWO_INPUT_HEIGHT,
+			rect_wnd.right - BUTTON_WIDTH,
+			INPUT_HEIGHT,
 			hwnd,
 			NULL,
 			fp->dll_hinst,
@@ -189,12 +168,12 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 			"BUTTON",
 			"Hide",
 			WS_CHILD | WS_VISIBLE,
-			rect_wnd.right - EWO_BUTTON_WIDTH,
+			rect_wnd.right - BUTTON_WIDTH,
 			0,
-			EWO_BUTTON_WIDTH,
-			EWO_INPUT_HEIGHT,
+			BUTTON_WIDTH,
+			INPUT_HEIGHT,
 			hwnd,
-			(HMENU)EWO_CM_FILTER,
+			(HMENU)COMMAND_FILTER,
 			fp->dll_hinst,
 			NULL
 		);
@@ -209,27 +188,27 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 	case WM_SIZE:
 		::MoveWindow(hwnd_list_exedit,
 			0,
-			EWO_INPUT_HEIGHT,
+			INPUT_HEIGHT,
 			rect_wnd.right / 2,
-			rect_wnd.bottom - EWO_INPUT_HEIGHT,
+			rect_wnd.bottom - INPUT_HEIGHT,
 			TRUE);
 		::MoveWindow(hwnd_list_obj,
 			rect_wnd.right / 2,
-			EWO_INPUT_HEIGHT,
+			INPUT_HEIGHT,
 			rect_wnd.right / 2,
-			rect_wnd.bottom - EWO_INPUT_HEIGHT,
+			rect_wnd.bottom - INPUT_HEIGHT,
 			TRUE);
 		::MoveWindow(edit_filter,
 			0,
 			0,
-			rect_wnd.right - EWO_BUTTON_WIDTH,
-			EWO_INPUT_HEIGHT,
+			rect_wnd.right - BUTTON_WIDTH,
+			INPUT_HEIGHT,
 			TRUE);
 		::MoveWindow(button,
-			rect_wnd.right - EWO_BUTTON_WIDTH,
+			rect_wnd.right - BUTTON_WIDTH,
 			0,
-			EWO_BUTTON_WIDTH,
-			EWO_INPUT_HEIGHT,
+			BUTTON_WIDTH,
+			INPUT_HEIGHT,
 			TRUE);
 		::SendMessage(hwnd_list_exedit, WM_VSCROLL, MAKEWPARAM(SB_LINEDOWN, NULL), NULL);
 		::SendMessage(hwnd_list_obj, WM_VSCROLL, MAKEWPARAM(SB_LINEDOWN, NULL), NULL);
@@ -237,65 +216,72 @@ BOOL filter_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void* edi
 
 	case WM_COMMAND:
 		switch (wparam) {
-		case EWO_CM_FILTER:
+		// FILTERボタン押下時
+		case COMMAND_FILTER:
 		{
-			std::string str;
 			char filter[1024];
 			::GetWindowText(edit_filter, filter, 1024);
-			str = filter;
-			try {
-				g_filter_list = split(str);
-			}
-			catch (std::invalid_argument&) {
-				::MessageBox(hwnd, "Invalid argument", "Error", MB_ICONERROR);
-			}
 
+			std::string str = filter;
+			
+			auto vec_str = mkaul::split(str, ',');
+
+			for (auto s : vec_str) {
+				try {
+					g_filter_list.emplace_back(std::stoi(s));
+				}
+				catch (std::invalid_argument&) {
+					continue;
+				}
+			}
 			return 0;
 		}
 		}
 		return 0;
-
 	}
 	return 0;
 }
 
 
 
-//---------------------------------------------------------------------
-//		FILTER構造体を定義
-//---------------------------------------------------------------------
-FILTER_DLL filter = {
-	FILTER_FLAG_ALWAYS_ACTIVE |
-	FILTER_FLAG_WINDOW_SIZE |
-	FILTER_FLAG_WINDOW_THICKFRAME |
-	FILTER_FLAG_DISP_FILTER |
-	FILTER_FLAG_EX_INFORMATION,
-	DEFAULT_WIDTH,
-	DEFAULT_HEIGHT,
-	EWO_FILTER_NAME,
-	NULL,NULL,NULL,
-	NULL,NULL,
-	NULL,NULL,NULL,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	filter_wndproc,
-	NULL,NULL,
-	NULL,
-	NULL,
-	FILTER_INFO,
-	NULL,NULL,
-	NULL,NULL,NULL,NULL,
-	NULL,
-};
+BOOL func_init(AviUtl::FilterPlugin* fp)
+{
+	if (!g_exedit_internal.init(fp)) {
+		::MessageBox(NULL, "拡張編集(ver.0.92)が見つからないか、バージョンが異なります。", FILTER_NAME, MB_ICONERROR);
+		return FALSE;
+	}
+
+	// フック処理(タイムラインウィンドウ)
+	wndproc_exedit_orig = g_exedit_internal.fp()->func_WndProc;
+	g_exedit_internal.fp()->func_WndProc = wndproc_timeline_hooked;
+	
+	// フック処理(オブジェクト設定ダイアログ)
+	mkaul::replace_var(g_exedit_internal.base_address() + 0x2e804, &wndproc_objdialog_hooked);
+
+	return TRUE;
+}
 
 
 
 //---------------------------------------------------------------------
 //		FILTER構造体のポインタを取得
 //---------------------------------------------------------------------
-EXTERN_C FILTER_DLL __declspec(dllexport)* __stdcall GetFilterTable(void)
+auto __stdcall GetFilterTable()
 {
+	using Flag = AviUtl::FilterPluginDLL::Flag;
+	static AviUtl::FilterPluginDLL filter = {
+		.flag = Flag::AlwaysActive |
+				Flag::WindowSize |
+				Flag::WindowThickFrame |
+				Flag::DispFilter |
+				Flag::ExInformation,
+		.x = 450,
+		.y = 300,
+		.name = FILTER_NAME,
+		.func_init = func_init,
+		.func_WndProc = func_WndProc,
+		.information = FILTER_NAME " " FILTER_VERSION " by " FILTER_DEVELOPER
+	};
+
 	return &filter;
 }
